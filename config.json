@@ -1,0 +1,13 @@
+{
+  "discord": {
+    "token": "discord token",
+    "application_id": "your app id",
+    "commands": {
+      "chat": "commandid",
+      "dalle": "commandid"
+    }
+  },
+  "openai": {
+    "api_key": "openai token"
+  },
+}
