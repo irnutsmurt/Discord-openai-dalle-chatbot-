@@ -1,0 +1,14 @@
+[Unit]
+Description=Discord Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=discordbot
+WorkingDirectory=/opt/nodejsdiscord
+ExecStart=/usr/bin/node /opt/nodejsdiscord/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
