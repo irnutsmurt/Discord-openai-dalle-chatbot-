@@ -118,7 +118,7 @@ sudo nano /etc/systemd/system/jsdiscordbot.service
 
 2. Add the following content to the service file:
 
-
+```
 [Unit]
 Description=Discord Bot Service
 After=network.target
