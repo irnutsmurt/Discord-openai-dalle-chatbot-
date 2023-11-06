@@ -1,3 +1,6 @@
+const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
 const { Configuration, OpenAIApi } = require('openai');
 const configData = require('./config.json');
 const { EmbedBuilder } = require('discord.js');
@@ -79,13 +82,32 @@ async function processQueue() {
 
   try {
     const imageUrl = await generateImage(prompt);
+    const imageName = path.basename(new URL(imageUrl).pathname);
+    const imagePath = path.join(__dirname, imageName);
+
+    // Download the image using node-fetch
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    const imageData = await response.buffer();
+
+    // Write the image data to a file
+    fs.writeFileSync(imagePath, imageData);
+
+    // After the image has been uploaded, construct the embed to send
     const embed = new EmbedBuilder()
       .setTitle(`Generated Image: ${prompt}`)
-      .setImage(imageUrl)
+      .setImage(`attachment://${imageName}`)
       .setColor('#0099ff')
       .setTimestamp();
 
-    await interaction.editReply({ embeds: [embed] });
+    // Reply with the embed and attached image
+    await interaction.editReply({ embeds: [embed], files: [{ attachment: imagePath, name: imageName }] });
+
+    // Delete the local image file after sending
+    await fs.promises.unlink(imagePath);
+
   } catch (error) {
     if (error.code === 'ECONNABORTED') {
       // Respond with a timeout message
