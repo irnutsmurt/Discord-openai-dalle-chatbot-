@@ -10,6 +10,7 @@ const configuration = new Configuration({
 
 const openai = new OpenAIApi(configuration);
 
+
 async function generateImage(prompt) {
   try {
     const headers = {
@@ -18,9 +19,8 @@ async function generateImage(prompt) {
     };
 
     const data = {
+	  model: "dall-e-3",
       prompt: prompt,
-      n: 2,
-      size: '512x512',
     };
 
     const response = await axios.post(
@@ -28,32 +28,28 @@ async function generateImage(prompt) {
       data,
       {
         headers: headers,
-        timeout: 10000, // 10 seconds timeout
+        timeout: 90000, // 90 seconds timeout
       }
     );
 
-    // Check if the API returned any images
     if (response.data && response.data.data && response.data.data.length > 0) {
-      // Return the first generated image's URL
       return response.data.data[0].url;
-    } else if (response.data && response.data.error && response.data.error.message.includes('your request was rejected as a result of our safety system.')) {
-      throw new Error('Safety system error');
     } else {
       throw new Error('No images generated');
     }
 
   } catch (error) {
-    if (error.response && error.response.status === 400) {
+    // Check if the error response exists and contains the expected structure
+    if (error.response && error.response.data && error.response.data.error) {
       const errorResponse = error.response.data;
-      if (errorResponse && errorResponse.error && errorResponse.error.message) {
-        if (errorResponse.error.message.includes('safety system')) {
-          throw new Error('Safety system error');
-        } else {
-          console.error(`Error in API response: ${JSON.stringify(errorResponse)}`);
-          throw new Error('API error');
-        }
+      console.error(`Error in API response: ${JSON.stringify(errorResponse)}`);
+
+      // Handle the content policy violation error
+      if (errorResponse.error.code === "content_policy_violation") {
+        throw new Error('Content policy violation');
+      } else if (errorResponse.error.message.includes('safety system')) {
+        throw new Error('Safety system error');
       } else {
-        console.error(`Error in API response: ${JSON.stringify(errorResponse)}`);
         throw new Error('API error');
       }
     } else {
@@ -83,29 +79,39 @@ async function processQueue() {
 
   try {
     const imageUrl = await generateImage(prompt);
-
     const embed = new EmbedBuilder()
-      .setTitle(`Generated Image: ${prompt}`) // Updated title to include the user's prompt
+      .setTitle(`Generated Image: ${prompt}`)
       .setImage(imageUrl)
       .setColor('#0099ff')
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    if (error.message.includes('Safety system error')) {
+    if (error.code === 'ECONNABORTED') {
+      // Respond with a timeout message
+      await interaction.editReply('Request timed out, wait 60 seconds and try again.');
+    } else if (error.message.includes('Content policy violation')) {
+      await interaction.editReply('Your request was rejected due to content policy violation.');
+    } else if (error.message.includes('Safety system error')) {
       await interaction.editReply('Your request was rejected as a result of our safety system.');
-    } else if (error.code === 'ECONNABORTED') {
-      await interaction.editReply('The request took too long. Please try again later.');
     } else if (error.message.includes('API error')) {
       await interaction.editReply('An error occurred while processing your request. Please try again later.');
     } else {
       console.error(error);
+      await interaction.editReply('An unexpected error occurred.');
     }
   }
 
-  // Remove the current request from the queue and process the next one
   queue.shift();
-  processQueue();
+  // Wait for 60 seconds before processing the next item in the queue
+  if (queue.length > 0) {
+    await wait(60000);
+    processQueue();
+  }
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 
