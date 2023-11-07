@@ -25,7 +25,7 @@ if (!fs.existsSync(logsDir)) {
 
 // Create a custom logger that outputs to a daily rotating file in the logs folder
 const logger = createLogger({
-  level: 'info',
+  level: 'debug',
   format: combine(
     timestamp(),
     printf(({ level, message, timestamp }) => {
@@ -78,6 +78,13 @@ const commands = [chatCommand, dalleCommand].map((command) =>
   command.toJSON()
 );
 
+// Define the '/clearchathistory' command
+const clearChatHistoryCommand = new SlashCommandBuilder()
+  .setName('clearchathistory')
+  .setDescription('Clear your conversation history with the bot');
+
+// In the part of your code where commands are registered, add the new command
+commands.push(clearChatHistoryCommand.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(configData.discord.token);
 
@@ -102,42 +109,47 @@ function validateInput(input) {
 
 async function handleChatCommand(interaction) {
   logger.info('Handling chat command');
-  const question = interaction.options.getString('question');
+  const questionContent = interaction.options.getString('question');
+  const messageId = interaction.id; // Discord's interaction ID can be used as a unique identifier
+  const userId = interaction.user.id;
 
-  if (!validateInput(question)) {
+  if (!validateInput(questionContent)) {
     await interaction.reply('Invalid input detected. Please try a different question.');
     return;
   }
-  logger.info(`Question: ${question}`);
-  const userId = interaction.user.id;
 
+  logger.info(`Question: ${questionContent}`);
+  
   // Defer the reply to indicate that the interaction is being handled
   await interaction.deferReply();
 
+  // Retrieve the conversation history to build the context for OpenAI
+  let messages = await db.getConversationHistory(userId);
+  
+  // Truncate the conversation history if it exceeds the token limit
+  // Token counting and trimming logic should be implemented here
+  // For now, we'll just use the last response and the current question for simplicity
+  
+  if (messages.length > 0) {
+    const lastResponse = messages[messages.length - 1].ResponseContent || 'You are a helpful assistant.';
+    messages = [{ role: 'assistant', content: lastResponse }, { role: 'user', content: questionContent }];
+  } else {
+    messages = [{ role: 'system', content: 'You are a helpful assistant.' }, { role: 'user', content: questionContent }];
+  }
+  
   // Call the OpenAI API to generate a response
-  const response = await openai.askQuestion(question);
+  const aiResponse = await openai.askQuestion(messages);
 
-  // Save the user's question to the 'questions' table in the database
-  await db.saveQuestion(userId, question);
-
-  // Get the user's last question from the database
-  const lastQuestion = await db.getLastQuestion(userId);
-
-  // Concatenate the last question and the current question
-  const prompt = lastQuestion + ' ' + question;
-
-  // Call the OpenAI API to generate a response
-  const aiResponse = await openai.askQuestion(prompt);
-
-  // Save the AI response to the 'questions' table in the database
-  await db.saveQuestion('AI', aiResponse);
-
+  // Save the user's question and the AI's response to the database
+  await db.saveQuestion(messageId, userId, questionContent);
+  await db.saveResponse(messageId, aiResponse);
+  
   logger.info(`AI Response: ${aiResponse}`);
-
+  
   // Send the response to the user
   const embed = new EmbedBuilder()
     .setTitle('OpenAI Response')
-    .setDescription(`**Question:** ${question}\n\n ${aiResponse}`);
+    .setDescription(`**Question:** ${questionContent}\n\n**Answer:** ${aiResponse}`);
 
   await interaction.editReply({ embeds: [embed] });
 }
@@ -173,6 +185,27 @@ async function handleGenImageCommand(interaction) {
   });
 }
 
+async function handleClearChatHistoryCommand(interaction) {
+  const userId = interaction.user.id;
+
+  // Defer the reply to indicate that the interaction is being handled
+  await interaction.deferReply();
+
+  try {
+    // Archive and clear the user's conversation history
+    await db.archiveHistory(userId);
+    await db.clearHistory(userId);
+    
+    logger.info(`Cleared chat history for user ${userId}`);
+    
+    // Reply to the user
+    await interaction.editReply('Your conversation history has been cleared.');
+  } catch (error) {
+    logger.error(`Error clearing chat history for user ${userId}: ${error}`);
+    await interaction.editReply('There was an error clearing your conversation history. Please try again later.');
+  }
+}
+
 
 // Event handler for the 'ready' event
 client.once('ready', () => {
@@ -188,7 +221,9 @@ client.on('interactionCreate', async (interaction) => {
     } else if (interaction.commandName === 'dalle') {
       // Ensure this call appears only once
       await handleGenImageCommand(interaction);
-    }
+    } else if (interaction.commandName === 'clearchathistory') {
+  await handleClearChatHistoryCommand(interaction);
+}
   }
 });
 
