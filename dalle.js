@@ -5,6 +5,7 @@ const { Configuration, OpenAIApi } = require('openai');
 const configData = require('./config.json');
 const { EmbedBuilder } = require('discord.js');
 const axios = require('axios');
+const logger = require('./logger');
 const queue = [];
 
 const configuration = new Configuration({
@@ -16,6 +17,7 @@ const openai = new OpenAIApi(configuration);
 
 async function generateImage(prompt) {
   try {
+	logger.info(`Generating image for prompt: ${prompt}`);  
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${configData.openai.api_key}`,
@@ -24,14 +26,15 @@ async function generateImage(prompt) {
     const data = {
 	  model: "dall-e-3",
       prompt: prompt,
+	  size: "1024x1024",
     };
-
+    
     const response = await axios.post(
       'https://api.openai.com/v1/images/generations',
       data,
       {
         headers: headers,
-        timeout: 90000, // 90 seconds timeout
+        timeout: 60000, // 60 seconds timeout
       }
     );
 
@@ -39,13 +42,14 @@ async function generateImage(prompt) {
       return response.data.data[0].url;
     } else {
       throw new Error('No images generated');
+	  logger.error('Error generating image, timed out', error);	
     }
 
   } catch (error) {
     // Check if the error response exists and contains the expected structure
     if (error.response && error.response.data && error.response.data.error) {
       const errorResponse = error.response.data;
-      console.error(`Error in API response: ${JSON.stringify(errorResponse)}`);
+      logger.error(`Error in API response: ${JSON.stringify(errorResponse)}`);
 
       // Handle the content policy violation error
       if (errorResponse.error.code === "content_policy_violation") {
@@ -56,7 +60,7 @@ async function generateImage(prompt) {
         throw new Error('API error');
       }
     } else {
-      console.error('Error generating image:', error);
+      logger.error('Error generating image:', error);
       throw error;
     }
   }
@@ -64,6 +68,7 @@ async function generateImage(prompt) {
 
 
 function addToQueue(prompt, interaction, callback) {
+  logger.info(`Adding image generation request to queue for prompt: ${prompt}`);
   // Add the request to the queue, including the prompt, interaction, and callback
   queue.push({ prompt, interaction, callback });
 
@@ -81,14 +86,18 @@ async function processQueue() {
   const { prompt, interaction } = queue[0];
 
   try {
+	logger.info(`Processing queue, current prompt: ${prompt}`);  
     const imageUrl = await generateImage(prompt);
     const imageName = path.basename(new URL(imageUrl).pathname);
     const imagePath = path.join(__dirname, imageName);
 
     // Download the image using node-fetch
     const response = await fetch(imageUrl);
+	logger.info(`Fetching image for prompt: ${imageUrl}`);  
+	  
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.statusText}`);
+	  logger.error(`Failed to fetch image: ${response.statusText}`);
     }
     const imageData = await response.buffer();
 
@@ -104,9 +113,12 @@ async function processQueue() {
 
     // Reply with the embed and attached image
     await interaction.editReply({ embeds: [embed], files: [{ attachment: imagePath, name: imageName }] });
+	logger.info(`Attaching image ${imageName} from: ${imagePath} to discord message`);  
 
     // Delete the local image file after sending
     await fs.promises.unlink(imagePath);
+	logger.info(`Deleting images from ${imagePath}`);
+	  
 
   } catch (error) {
     if (error.code === 'ECONNABORTED') {
@@ -119,7 +131,7 @@ async function processQueue() {
     } else if (error.message.includes('API error')) {
       await interaction.editReply('An error occurred while processing your request. Please try again later.');
     } else {
-      console.error(error);
+      logger.error(`Error while processing queue: ${error}`);
       await interaction.editReply('An unexpected error occurred.');
     }
   }
