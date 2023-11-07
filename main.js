@@ -12,8 +12,7 @@ const openai = createOpenAIApi(configData.openai.api_key);
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const { createLogger, transports, format } = require('winston');
-const { combine, timestamp, printf } = format;
+const logger = require('./logger');
 const validator = require('validator');
 
 
@@ -24,25 +23,25 @@ if (!fs.existsSync(logsDir)) {
 }
 
 // Create a custom logger that outputs to a daily rotating file in the logs folder
-const logger = createLogger({
-  level: 'debug',
-  format: combine(
-    timestamp(),
-    printf(({ level, message, timestamp }) => {
-      return `${timestamp} [${level.toUpperCase()}]: ${message}`;
-    })
-  ),
-  transports: [
-    new transports.File({
-      filename: path.join(logsDir, `${new Date().toISOString().slice(0, 10)}.log`),
-      maxFiles: 7, // Keep only 7 days worth of logs
-      maxsize: 1024 * 1024, // Rotate logs at 1 MB
-    }),
-  ],
-});
+//const logger = createLogger({
+//  level: 'debug',
+//  format: combine(
+//    timestamp(),
+//    printf(({ level, message, timestamp }) => {
+//      return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+//    })
+//  ),
+//  transports: [
+//    new transports.File({
+//      filename: path.join(logsDir, `${new Date().toISOString().slice(0, 10)}.log`),
+//     maxFiles: 7, // Keep only 7 days worth of logs
+//     maxsize: 1024 * 1024, // Rotate logs at 1 MB
+//    }),
+//  ],
+//});
 
-// Export the logger so it can be used in other files
-module.exports.logger = logger;
+//// Export the logger so it can be used in other files
+//module.exports.logger = logger;
 
 // Log a message with the custom logger
 logger.info('Starting bot');
@@ -90,7 +89,7 @@ const rest = new REST({ version: '10' }).setToken(configData.discord.token);
 
 // Event handler for the 'ready' event
 client.once('ready', () => {
-  console.log('Bot is ready!');
+  logger.info('Bot is ready!');
 });
 
 function validateInput(input) {
@@ -112,7 +111,8 @@ async function handleChatCommand(interaction) {
   const questionContent = interaction.options.getString('question');
   const messageId = interaction.id; // Discord's interaction ID can be used as a unique identifier
   const userId = interaction.user.id;
-
+  const username = interaction.user.username;
+	
   if (!validateInput(questionContent)) {
     await interaction.reply('Invalid input detected. Please try a different question.');
     return;
@@ -126,10 +126,7 @@ async function handleChatCommand(interaction) {
   // Retrieve the conversation history to build the context for OpenAI
   let messages = await db.getConversationHistory(userId);
   
-  // Truncate the conversation history if it exceeds the token limit
-  // Token counting and trimming logic should be implemented here
-  // For now, we'll just use the last response and the current question for simplicity
-  
+
   if (messages.length > 0) {
     const lastResponse = messages[messages.length - 1].ResponseContent || 'You are a helpful assistant.';
     messages = [{ role: 'assistant', content: lastResponse }, { role: 'user', content: questionContent }];
@@ -141,7 +138,7 @@ async function handleChatCommand(interaction) {
   const aiResponse = await openai.askQuestion(messages);
 
   // Save the user's question and the AI's response to the database
-  await db.saveQuestion(messageId, userId, questionContent);
+  await db.saveQuestion(messageId, userId, username, questionContent);
   await db.saveResponse(messageId, aiResponse);
   
   logger.info(`AI Response: ${aiResponse}`);
@@ -154,22 +151,24 @@ async function handleChatCommand(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function sendGeneratedImage(interaction, imageBuffer, prompt) {
-  const attachment = new AttachmentBuilder(imageBuffer, 'generated-image.png');
-  const embed = new EmbedBuilder()
-    .setTitle(`DALL-E Generated Image: ${prompt}`) // Updated title to include the user's prompt
-    .setColor('#0099ff')
-    .setTimestamp()
-    .setImage(`attachment://generated-image.png`)
-    .setFooter(`Prompt: ${prompt}`);
+// async function sendGeneratedImage(interaction, imageBuffer, prompt) {
+//  const attachment = new AttachmentBuilder(imageBuffer, 'generated-image.png');
+//  const embed = new EmbedBuilder()
+//    .setTitle(`DALL-E Generated Image: ${prompt}`) // Updated title to include the user's prompt
+//    .setColor('#0099ff')
+//    .setTimestamp()
+//    .setImage(`attachment://generated-image.png`)
+//    .setFooter(`Prompt: ${prompt}`);
 
-  await interaction.editReply({ embeds: [embed], files: [attachment] });
-}
+//  await interaction.editReply({ embeds: [embed], files: [attachment] });
+//}
 
 
 async function handleGenImageCommand(interaction) {
-  console.log('Handling genimage command');
+  logger.info(`Received genimage command from ${interaction.user.username}`);
   const prompt = interaction.options.getString('prompt');
+  const userId = interaction.user.id; // Get the user ID
+  const username = interaction.user.username; // Get the username
 
   if (!validateInput(prompt)) {
     await interaction.reply('Invalid input detected. Please try a different prompt.');
@@ -179,9 +178,12 @@ async function handleGenImageCommand(interaction) {
   // Defer the reply to indicate that the interaction is being handled
   await interaction.deferReply();
 
+  // Save the DALLE image request in the database
+//  await db.saveDalleImageRequest(userId, username, prompt);
+
   // Add the request to the image generation queue
-  addToQueue(prompt, interaction, (imageBuffer) => {
-    sendGeneratedImage(interaction, imageBuffer, prompt);
+  addToQueue(prompt, interaction, async (imageBuffer) => {
+    await sendGeneratedImage(interaction, imageBuffer, prompt);
   });
 }
 
@@ -196,7 +198,7 @@ async function handleClearChatHistoryCommand(interaction) {
     await db.archiveHistory(userId);
     await db.clearHistory(userId);
     
-    logger.info(`Cleared chat history for user ${userId}`);
+    logger.info(`Cleared chat history for user ${interaction.user.username}`);
     
     // Reply to the user
     await interaction.editReply('Your conversation history has been cleared.');
