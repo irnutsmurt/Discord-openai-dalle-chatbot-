@@ -4,17 +4,14 @@ function createOpenAIApi(apiKey) {
   const configuration = new Configuration({ apiKey });
   const openai = new OpenAIApi(configuration);
 
-  async function askQuestion(question) {
+  async function askQuestion(messages) {
     const response = await openai.createChatCompletion({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'user', content: question },
-      ],
-      max_tokens: 1024,
+      model: 'gpt-4-1106-preview',
+      messages: messages,
+      max_tokens: 8192,
       n: 1,
       stop: null,
-      temperature: 0.3,
+      temperature: 0.7,
     });
 
     return response.data.choices[0].message.content;
