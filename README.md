@@ -76,6 +76,13 @@ Followed by their question or image they want to generate. This is an example of
 /dalle staind glass window. Dog in a fighter jet. Sun in the bottom left corner. Lens flare shining.
 ```
 
+If the user wants to clear their chat history to start a new session, then type
+
+```
+/clearchathistory
+```
+This will save the chat history in an archive in the DB, and start the chat history like new.
+
 ## Creating a service account ##
 1. Create a new user:
 ```
