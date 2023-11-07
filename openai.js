@@ -6,7 +6,7 @@ function createOpenAIApi(apiKey) {
 
   async function askQuestion(messages) {
     const response = await openai.createChatCompletion({
-      model: 'gpt-4-1106-preview',
+      model: 'gpt-4',
       messages: messages,
       max_tokens: 4096,
       n: 1,
