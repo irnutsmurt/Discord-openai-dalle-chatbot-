@@ -1,12 +1,13 @@
 const sqlite3 = require('sqlite3').verbose();
+const logger = require('./logger'); // Ensure the path to logger.js is correct
 
 class Database {
   constructor() {
     this.db = new sqlite3.Database('./conversation.db', sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
       if (err) {
-        console.error(err.message);
+        logger.error('Database connection error: ' + err.message);
       } else {
-        console.log('Connected to the conversation database.');
+        logger.info('Connected to the conversation database.');
         this.initializeDatabase();
       }
     });
@@ -48,13 +49,16 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run('INSERT INTO Questions (MessageID, UserID, QuestionContent) VALUES (?, ?, ?)', [messageId, userId, questionContent], function(err) {
         if (err) {
+          logger.error('Error saving question: ' + err.message);
           reject(err);
         } else {
+          logger.info(`Saved question: ${messageId} from user: ${userId}`);
           resolve(this.lastID);
         }
       });
     });
   }
+
 
   saveResponse(messageId, responseContent) {
     return new Promise((resolve, reject) => {
@@ -118,7 +122,5 @@ class Database {
     });
   }
 }
-
-
 
 module.exports = { Database };
