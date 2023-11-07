@@ -8,7 +8,7 @@ function createOpenAIApi(apiKey) {
     const response = await openai.createChatCompletion({
       model: 'gpt-4-1106-preview',
       messages: messages,
-      max_tokens: 8192,
+      max_tokens: 4096,
       n: 1,
       stop: null,
       temperature: 0.7,
